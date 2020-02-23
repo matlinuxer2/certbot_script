@@ -69,7 +69,7 @@ case "$subcmd" in
         CERTBOT_OPTS="$CERTBOT_OPTS --agree-tos --no-eff-email"
         CERTBOT_OPTS="$CERTBOT_OPTS --noninteractive"
         CERTBOT_OPTS="$CERTBOT_OPTS --email $var_email"
-        CERTBOT_OPTS="$CERTBOT_OPTS --cert-name $var_domain --domain $var_domain --domain *.$var_domain "
+        CERTBOT_OPTS="$CERTBOT_OPTS --cert-name $var_domain --domain $var_domain,*.$var_domain "
 
         docker_certbot_cmd $subcmd
     ;;
@@ -97,15 +97,15 @@ case "$subcmd" in
         rm $tmpf
 
         if (echo $date_txt | grep -e '(VALID: .* days)' >& /dev/null) then
-            cert_path="$DATA_DIR/${cert_txt#/etc/letsencrypt/}"
-            priv_path="$DATA_DIR/${priv_txt#/etc/letsencrypt/}"
-            (cd $ROOT_DIR || exit
-                ln -v -sf "${cert_path#$ROOT_DIR/}" "fullchain.pem"
-                ln -v -sf "${priv_path#$ROOT_DIR/}" "privkey.pem"
+            (cd $DATA_DIR || exit
+                ln -v -sf "${cert_txt#/etc/letsencrypt/}" "fullchain.pem"
+                ln -v -sf "${priv_txt#/etc/letsencrypt/}" "privkey.pem"
             )
         else
-            rm -v fullchain.pem
-            rm -v privkey.pem
+            for item in "$DATA_DIR/fullchain.pem" "$DATA_DIR/privkey.pem"
+            do
+                    [ -e "$item" ] && rm -v "$item"
+            done
         fi
     ;;
 
