@@ -61,7 +61,7 @@ case "$subcmd" in
         CERTBOT_OPTS="$CERTBOT_OPTS --manual-public-ip-logging-ok"
         CERTBOT_OPTS="$CERTBOT_OPTS --preferred-challenges dns-01"
 
-        HOST_UID=$(id --user)
+        HOST_UID=$(id -u)
         CERTBOT_OPTS="$CERTBOT_OPTS --post-hook 'chown $HOST_UID:$HOST_UID -R /etc/letsencrypt' "
 
         [ -n "$DRYRUN" ] && CERTBOT_OPTS="$CERTBOT_OPTS --dry-run"
