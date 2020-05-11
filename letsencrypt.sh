@@ -85,7 +85,7 @@ case "$subcmd" in
         function grab_cert_info(){
             local domainname="$1"
             $SELF_EXE certificates \
-                | grep -A 4 -e "^\s*Certificate Name: $domainname" \
+                | grep -A 5 -e "^\s*Certificate Name: $domainname" \
                 | cat
         }
 
