@@ -32,7 +32,9 @@ function docker_certbot_cmd(){
     DOCKER_OPTS="$DOCKER_OPTS -v $DATA_DIR:/etc/letsencrypt"
     [ -n "$DEBUG" ] && DOCKER_OPTS="$DOCKER_OPTS -e DEBUG=$DEBUG"
 
-    cmd="docker run -it --rm --name certbot $DOCKER_OPTS certbot/certbot $CERTBOT_OPTS $@"
+    [ -n "$CERTBOT_IMAGE" ] || CERTBOT_IMAGE="certbot/certbot"
+
+    cmd="docker run -it --rm --name certbot $DOCKER_OPTS $CERTBOT_IMAGE $CERTBOT_OPTS $@"
     [ -n "$DEBUG" ] && echo "cmd: $cmd"
     eval "$cmd" 2>&1 | tee $ROOT_DIR/run.log
 }
@@ -43,23 +45,57 @@ case "$subcmd" in
     certonly)
         var_email=$(jq -r '.email' $ROOT_CFG)
         var_domain=$(jq -r '.domain' $ROOT_CFG)
-        GANDI_APIKEY=$(jq -r '.GANDI_APIKEY' $ROOT_CFG)
-        DNS_SERVERS=$(jq -r '.DNS_SERVERS[]' $ROOT_CFG | paste -sd, -)
+        var_type=$(jq -r '.type' $ROOT_CFG)
 
-        [ -n "$var_email" ] || die "$ROOT_CFG: 'email' not found"
-        [ -n "$var_domain" ] || die "$ROOT_CFG: 'domain' not found"
-        [ -n "$GANDI_APIKEY" ] || die "$ROOT_CFG: 'GANDI_APIKEY' not found"
-        [ -n "$DNS_SERVERS" ] || die "$ROOT_CFG: 'DNS_SERVERS' not found"
+	[ -n "$var_email" ] || die "$ROOT_CFG: 'email' not found"
+	[ -n "$var_domain" ] || die "$ROOT_CFG: 'domain' not found"
+	[ -n "$var_type" ] || die "$ROOT_CFG: 'type' not found"
 
-        DOCKER_OPTS="$DOCKER_OPTS -v $ROOT_DIR/manual_hook:/usr/bin/manual_hook"
-        DOCKER_OPTS="$DOCKER_OPTS -e GANDI_APIKEY=$GANDI_APIKEY"
-        DOCKER_OPTS="$DOCKER_OPTS -e DNS_SERVERS=$DNS_SERVERS"
-        CERTBOT_OPTS="$CERTBOT_OPTS --pre-hook 'apk add python3 bind-tools' "
-        CERTBOT_OPTS="$CERTBOT_OPTS --manual"
-        CERTBOT_OPTS="$CERTBOT_OPTS --manual-auth-hook 'manual_hook auth' "
-        CERTBOT_OPTS="$CERTBOT_OPTS --manual-cleanup-hook 'manual_hook cleanup' "
-        CERTBOT_OPTS="$CERTBOT_OPTS --manual-public-ip-logging-ok"
-        CERTBOT_OPTS="$CERTBOT_OPTS --preferred-challenges dns-01"
+	case "$var_type" in
+		gandi)
+		GANDI_APIKEY=$(jq -r '.APIKEY' $ROOT_CFG)
+		DNS_SERVERS=$(jq -r '.DNS_SERVERS[]' $ROOT_CFG | paste -sd, -)
+
+		[ -n "$GANDI_APIKEY" ] || die "$ROOT_CFG: 'APIKEY' not found"
+		[ -n "$DNS_SERVERS" ] || die "$ROOT_CFG: 'DNS_SERVERS' not found"
+
+		DOCKER_OPTS="$DOCKER_OPTS -v $ROOT_DIR/manual_hook:/usr/bin/manual_hook"
+		DOCKER_OPTS="$DOCKER_OPTS -e GANDI_APIKEY=$GANDI_APIKEY"
+		DOCKER_OPTS="$DOCKER_OPTS -e DNS_SERVERS=$DNS_SERVERS"
+		CERTBOT_OPTS="$CERTBOT_OPTS --pre-hook 'apk add python3 bind-tools' "
+		CERTBOT_OPTS="$CERTBOT_OPTS --manual"
+		CERTBOT_OPTS="$CERTBOT_OPTS --manual-auth-hook 'manual_hook auth' "
+		CERTBOT_OPTS="$CERTBOT_OPTS --manual-cleanup-hook 'manual_hook cleanup' "
+		CERTBOT_OPTS="$CERTBOT_OPTS --manual-public-ip-logging-ok"
+		CERTBOT_OPTS="$CERTBOT_OPTS --preferred-challenges dns-01"
+		;;
+
+		cloudflare)
+		APIKEY=$(jq -r '.APIKEY' $ROOT_CFG)
+		DNS_SERVERS=$(jq -r '.DNS_SERVERS[]' $ROOT_CFG | paste -sd, -)
+
+		[ -n "$APIKEY" ] || die "$ROOT_CFG: 'APIKEY' not found"
+		[ -n "$DNS_SERVERS" ] || die "$ROOT_CFG: 'DNS_SERVERS' not found"
+
+		install -D /dev/null ~/.secrets/certbot/cloudflare.ini
+		cat > ~/.secrets/certbot/cloudflare.ini <<EOD
+# Cloudflare API credentials used by Certbot
+dns_cloudflare_api_token = $APIKEY
+EOD
+		chmod 600 ~/.secrets/certbot/cloudflare.ini
+		CERTBOT_OPTS="$CERTBOT_OPTS --dns-cloudflare"
+		CERTBOT_OPTS="$CERTBOT_OPTS --dns-cloudflare-credentials ~/.secrets/certbot/cloudflare.ini"
+		CERTBOT_OPTS="$CERTBOT_OPTS --dns-cloudflare-propagation-seconds 60"
+		CERTBOT_OPTS="$CERTBOT_OPTS --preferred-challenges dns-01"
+		DOCKER_OPTS="$DOCKER_OPTS -v ~/.secrets/certbot/cloudflare.ini:/root/.secrets/certbot/cloudflare.ini"
+
+		export CERTBOT_IMAGE="certbot/dns-cloudflare"
+		;;
+
+		*)
+		die "$ROOT_CFG: 'type: $var_type' not support"
+		;;
+	esac
 
         HOST_UID=$(id -u)
         CERTBOT_OPTS="$CERTBOT_OPTS --post-hook 'chown $HOST_UID:$HOST_UID -R /etc/letsencrypt' "
@@ -98,11 +134,11 @@ case "$subcmd" in
 
         if (echo $date_txt | grep -e '(VALID: .* days)' >& /dev/null) then
             (cd $DATA_DIR || exit
-                ln -v -sf "${cert_txt#/etc/letsencrypt/}" "fullchain.pem"
-                ln -v -sf "${priv_txt#/etc/letsencrypt/}" "privkey.pem"
+                ln -v -sf "${cert_txt#/etc/letsencrypt/}" "${var_domain}.crt"
+                ln -v -sf "${priv_txt#/etc/letsencrypt/}" "${var_domain}.key"
             )
         else
-            for item in "$DATA_DIR/fullchain.pem" "$DATA_DIR/privkey.pem"
+            for item in "${DATA_DIR}/${var_domain}.crt" "${DATA_DIR}/${var_domain}.key"
             do
                     [ -e "$item" ] && rm -v "$item"
             done

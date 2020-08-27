@@ -3,3 +3,5 @@
 /persistent
 /privkey.pem
 /run.log
+/*.crt
+/*.key
