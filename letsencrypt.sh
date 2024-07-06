@@ -9,43 +9,44 @@ DATA_DIR="$ROOT_DIR/persistent"
 DOCKER_OPTS=""
 CERTBOT_OPTS=""
 
-function usage(){
-        cat <<EOD
+function usage() {
+	cat <<EOD
 usage:
         $(basename $SELF_EXE) (certonly|certificates|link)
 
 EOD
 }
 
-function die(){
-    printf "$@\n"
-    exit 1
+function die() {
+	printf "$@\n"
+	exit 1
 }
 
-function precheck(){
-    [ -e "$ROOT_CFG" ] || die "[Err] $ROOT_CFG not found."
+function precheck() {
+	[ -e "$ROOT_CFG" ] || die "[Err] $ROOT_CFG not found."
 
-    jq type "$ROOT_CFG" >&/dev/null; [ $? -eq 4 ] && die "[Err] $ROOT_CFG syntax error."
+	jq type "$ROOT_CFG" >&/dev/null
+	[ $? -eq 4 ] && die "[Err] $ROOT_CFG syntax error."
 }
 
-function docker_certbot_cmd(){
-    DOCKER_OPTS="$DOCKER_OPTS -v $DATA_DIR:/etc/letsencrypt"
-    [ -n "$DEBUG" ] && DOCKER_OPTS="$DOCKER_OPTS -e DEBUG=$DEBUG"
+function docker_certbot_cmd() {
+	DOCKER_OPTS="$DOCKER_OPTS -v $DATA_DIR:/etc/letsencrypt"
+	[ -n "$DEBUG" ] && DOCKER_OPTS="$DOCKER_OPTS -e DEBUG=$DEBUG"
 
-    [ -n "$CERTBOT_IMAGE" ] || CERTBOT_IMAGE="certbot/certbot"
+	[ -n "$CERTBOT_IMAGE" ] || CERTBOT_IMAGE="certbot/certbot"
 
-    cmd="docker run -it --rm --name certbot $DOCKER_OPTS $CERTBOT_IMAGE $CERTBOT_OPTS $@"
-    [ -n "$DEBUG" ] && echo "cmd: $cmd"
-    eval "$cmd" 2>&1 | tee $ROOT_DIR/run.log
+	cmd="docker run -it --rm --name certbot $DOCKER_OPTS $CERTBOT_IMAGE $CERTBOT_OPTS $@"
+	[ -n "$DEBUG" ] && echo "cmd: $cmd"
+	eval "$cmd" 2>&1 | tee $ROOT_DIR/run.log
 }
 
 subcmd="$1"
 precheck
 case "$subcmd" in
-    certonly)
-        var_email=$(jq -r '.email' $ROOT_CFG)
-        var_domain=$(jq -r '.domain' $ROOT_CFG)
-        var_type=$(jq -r '.type' $ROOT_CFG)
+certonly)
+	var_email=$(jq -r '.email' $ROOT_CFG)
+	var_domain=$(jq -r '.domain' $ROOT_CFG)
+	var_type=$(jq -r '.type' $ROOT_CFG)
 
 	[ -n "$var_email" ] || die "$ROOT_CFG: 'email' not found"
 	[ -n "$var_domain" ] || die "$ROOT_CFG: 'domain' not found"
@@ -54,7 +55,7 @@ case "$subcmd" in
 	TMPD=$(mktemp -d)
 
 	case "$var_type" in
-		gandi)
+	gandi)
 		GANDI_APIKEY=$(jq -r '.APIKEY' $ROOT_CFG)
 		DNS_SERVERS=$(jq -r '.DNS_SERVERS[]' $ROOT_CFG | paste -sd, -)
 
@@ -63,13 +64,13 @@ case "$subcmd" in
 
 		DOCKER_OPTS="$DOCKER_OPTS -e GANDI_APIKEY=$GANDI_APIKEY"
 		DOCKER_OPTS="$DOCKER_OPTS -e DNS_SERVERS=$DNS_SERVERS"
-		DOCKER_OPTS="$DOCKER_OPTS --entrypoint certbot_pre -v `pwd`/certbot_pre:/usr/local/bin/certbot_pre"
+		DOCKER_OPTS="$DOCKER_OPTS --entrypoint certbot_pre -v $(pwd)/certbot_pre:/usr/local/bin/certbot_pre"
 		CERTBOT_OPTS="$CERTBOT_OPTS --authenticator dns-gandi"
 		CERTBOT_OPTS="$CERTBOT_OPTS --dns-gandi-credentials /tmp/gandi.ini"
 		CERTBOT_OPTS="$CERTBOT_OPTS --server https://acme-v02.api.letsencrypt.org/directory"
 		;;
 
-		cloudflare)
+	cloudflare)
 		APIKEY=$(jq -r '.APIKEY' $ROOT_CFG)
 		DNS_SERVERS=$(jq -r '.DNS_SERVERS[]' $ROOT_CFG | paste -sd, -)
 
@@ -77,7 +78,7 @@ case "$subcmd" in
 		[ -n "$DNS_SERVERS" ] || die "$ROOT_CFG: 'DNS_SERVERS' not found"
 
 		install -D /dev/null ~/.secrets/certbot/cloudflare.ini
-		cat > ~/.secrets/certbot/cloudflare.ini <<EOD
+		cat >~/.secrets/certbot/cloudflare.ini <<EOD
 # Cloudflare API credentials used by Certbot
 dns_cloudflare_api_token = $APIKEY
 EOD
@@ -91,61 +92,61 @@ EOD
 		export CERTBOT_IMAGE="certbot/dns-cloudflare"
 		;;
 
-		*)
+	*)
 		die "$ROOT_CFG: 'type: $var_type' not support"
 		;;
 	esac
 
-        HOST_UID=$(id -u)
-        CERTBOT_OPTS="$CERTBOT_OPTS --post-hook 'chown $HOST_UID:$HOST_UID -R /etc/letsencrypt' "
+	HOST_UID=$(id -u)
+	CERTBOT_OPTS="$CERTBOT_OPTS --post-hook 'chown $HOST_UID:$HOST_UID -R /etc/letsencrypt' "
 
-        [ -n "$DRYRUN" ] && CERTBOT_OPTS="$CERTBOT_OPTS --dry-run"
+	[ -n "$DRYRUN" ] && CERTBOT_OPTS="$CERTBOT_OPTS --dry-run"
 
-        CERTBOT_OPTS="$CERTBOT_OPTS --agree-tos --no-eff-email"
-        CERTBOT_OPTS="$CERTBOT_OPTS --noninteractive"
-        CERTBOT_OPTS="$CERTBOT_OPTS --email $var_email"
-        CERTBOT_OPTS="$CERTBOT_OPTS --cert-name $var_domain --domain $var_domain,*.$var_domain "
+	CERTBOT_OPTS="$CERTBOT_OPTS --agree-tos --no-eff-email"
+	CERTBOT_OPTS="$CERTBOT_OPTS --noninteractive"
+	CERTBOT_OPTS="$CERTBOT_OPTS --email $var_email"
+	CERTBOT_OPTS="$CERTBOT_OPTS --cert-name $var_domain --domain $var_domain,*.$var_domain "
 
-        docker_certbot_cmd $subcmd
+	docker_certbot_cmd $subcmd
 	rm -r "$TMPD"
-    ;;
+	;;
 
-    certificates)
-        docker_certbot_cmd $subcmd
-    ;;
+certificates)
+	docker_certbot_cmd $subcmd
+	;;
 
-    link)
-        var_domain=$(jq -r '.domain' $ROOT_CFG)
-        [ -n "$var_domain" ] || die "$ROOT_CFG: 'domain' not found"
+link)
+	var_domain=$(jq -r '.domain' $ROOT_CFG)
+	[ -n "$var_domain" ] || die "$ROOT_CFG: 'domain' not found"
 
-        function grab_cert_info(){
-            local domainname="$1"
-            $SELF_EXE certificates \
-                | grep -A 6 -e "^\s*Certificate Name: $domainname" \
-                | cat
-        }
+	function grab_cert_info() {
+		local domainname="$1"
+		$SELF_EXE certificates |
+			grep -A 6 -e "^\s*Certificate Name: $domainname" |
+			cat
+	}
 
-        tmpf=$(mktemp) && grab_cert_info $var_domain > $tmpf
+	tmpf=$(mktemp) && grab_cert_info $var_domain >$tmpf
 
-        cert_txt=$(cat $tmpf | grep -e "Certificate Path:" | sed -e 's/.* Path:\s//g' -e 's/\s*$//g')
-        priv_txt=$(cat $tmpf | grep -e "Private Key Path:" | sed -e 's/.* Path:\s//g' -e 's/\s*$//g')
-        date_txt=$(cat $tmpf | grep -e "Expiry Date:" | sed -e 's/.* Date:\s//g' -e 's/\s*$//g')
-        rm $tmpf
+	cert_txt=$(cat $tmpf | grep -e "Certificate Path:" | sed -e 's/.* Path:\s//g' -e 's/\s*$//g')
+	priv_txt=$(cat $tmpf | grep -e "Private Key Path:" | sed -e 's/.* Path:\s//g' -e 's/\s*$//g')
+	date_txt=$(cat $tmpf | grep -e "Expiry Date:" | sed -e 's/.* Date:\s//g' -e 's/\s*$//g')
+	rm $tmpf
 
-        if (echo $date_txt | grep -e '(VALID: .* days)' >& /dev/null) then
-            (cd $DATA_DIR || exit
-                ln -v -sf "${cert_txt#/etc/letsencrypt/}" "${var_domain}.crt"
-                ln -v -sf "${priv_txt#/etc/letsencrypt/}" "${var_domain}.key"
-            )
-        else
-            for item in "${DATA_DIR}/${var_domain}.crt" "${DATA_DIR}/${var_domain}.key"
-            do
-                    [ -e "$item" ] && rm -v "$item"
-            done
-        fi
-    ;;
+	if (echo $date_txt | grep -e '(VALID: .* days)' >&/dev/null); then
+		(
+			cd $DATA_DIR || exit
+			ln -v -sf "${cert_txt#/etc/letsencrypt/}" "${var_domain}.crt"
+			ln -v -sf "${priv_txt#/etc/letsencrypt/}" "${var_domain}.key"
+		)
+	else
+		for item in "${DATA_DIR}/${var_domain}.crt" "${DATA_DIR}/${var_domain}.key"; do
+			[ -e "$item" ] && rm -v "$item"
+		done
+	fi
+	;;
 
-    *)
-    usage
-    ;;
+*)
+	usage
+	;;
 esac
