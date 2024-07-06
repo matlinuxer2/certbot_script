@@ -6,9 +6,10 @@ Add a config file `config.json`, content format like below:
 
 ```
 {
-        "GANDI_APIKEY" : "########################",
+        "APIKEY" : "########################",
         "email" : "someone@some.domain",
         "domain" : "your_domain.name",
+        "type" : "gandi",
         "DNS_SERVERS": [
                 "8.8.8.8",
                 "1.1.1.1"

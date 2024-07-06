@@ -51,6 +51,8 @@ case "$subcmd" in
 	[ -n "$var_domain" ] || die "$ROOT_CFG: 'domain' not found"
 	[ -n "$var_type" ] || die "$ROOT_CFG: 'type' not found"
 
+	TMPD=$(mktemp -d)
+
 	case "$var_type" in
 		gandi)
 		GANDI_APIKEY=$(jq -r '.APIKEY' $ROOT_CFG)
@@ -59,15 +61,12 @@ case "$subcmd" in
 		[ -n "$GANDI_APIKEY" ] || die "$ROOT_CFG: 'APIKEY' not found"
 		[ -n "$DNS_SERVERS" ] || die "$ROOT_CFG: 'DNS_SERVERS' not found"
 
-		DOCKER_OPTS="$DOCKER_OPTS -v $ROOT_DIR/manual_hook:/usr/bin/manual_hook"
 		DOCKER_OPTS="$DOCKER_OPTS -e GANDI_APIKEY=$GANDI_APIKEY"
 		DOCKER_OPTS="$DOCKER_OPTS -e DNS_SERVERS=$DNS_SERVERS"
-		CERTBOT_OPTS="$CERTBOT_OPTS --pre-hook 'apk add python3 bind-tools' "
-		CERTBOT_OPTS="$CERTBOT_OPTS --manual"
-		CERTBOT_OPTS="$CERTBOT_OPTS --manual-auth-hook 'manual_hook auth' "
-		CERTBOT_OPTS="$CERTBOT_OPTS --manual-cleanup-hook 'manual_hook cleanup' "
-		CERTBOT_OPTS="$CERTBOT_OPTS --manual-public-ip-logging-ok"
-		CERTBOT_OPTS="$CERTBOT_OPTS --preferred-challenges dns-01"
+		DOCKER_OPTS="$DOCKER_OPTS --entrypoint certbot_pre -v `pwd`/certbot_pre:/usr/local/bin/certbot_pre"
+		CERTBOT_OPTS="$CERTBOT_OPTS --authenticator dns-gandi"
+		CERTBOT_OPTS="$CERTBOT_OPTS --dns-gandi-credentials /tmp/gandi.ini"
+		CERTBOT_OPTS="$CERTBOT_OPTS --server https://acme-v02.api.letsencrypt.org/directory"
 		;;
 
 		cloudflare)
@@ -108,6 +107,7 @@ EOD
         CERTBOT_OPTS="$CERTBOT_OPTS --cert-name $var_domain --domain $var_domain,*.$var_domain "
 
         docker_certbot_cmd $subcmd
+	rm -r "$TMPD"
     ;;
 
     certificates)

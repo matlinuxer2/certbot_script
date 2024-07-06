@@ -1,0 +1,11 @@
+#!/bin/sh
+
+cat > /tmp/gandi.ini <<EOD
+# Gandi personal access token
+dns_gandi_token=$GANDI_APIKEY
+EOD
+chmod 600 /tmp/gandi.ini
+
+pip install certbot-plugin-gandi
+
+certbot "$@"
